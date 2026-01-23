@@ -177,8 +177,7 @@ download_debs() {
     latest_version="$(
         curl -fsSL \
             ${kernel_api}/releases/expanded_assets/fnnas_debs |
-            grep -oE "${kernel_verpatch}\.[0-9]+\.tar\.gz" |
-            sed "s/\.tar\.gz//" |
+            grep -oP "${kernel_verpatch}\.[0-9]+(?=\.tar\.gz)" |
             sort -urV | head -n 1
     )"
     [[ -n "${latest_version}" ]] || error_msg "Failed to query kernel debs version from [ ${kernel_api} ]."
@@ -221,8 +220,7 @@ download_dtbs() {
     latest_version="$(
         curl -fsSL \
             https://github.com/ophub/kernel/releases/expanded_assets/kernel_stable |
-            grep -oE "${kernel_verpatch}\.[0-9]+\.tar\.gz" |
-            sed "s/\.tar\.gz//" |
+            grep -oP "${kernel_verpatch}\.[0-9]+(?=\.tar\.gz)" |
             sort -urV | head -n 1
     )"
     [[ -n "${latest_version}" ]] || error_msg "Failed to query kernel dtbs version from [ https://github.com/ophub/kernel ]."
