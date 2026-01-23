@@ -61,7 +61,6 @@ platform_files="${resource_path}/fnnas-files/platform-files"
 different_files="${resource_path}/fnnas-files/different-files"
 firmware_path="${common_files}/usr/lib/firmware"
 model_conf="${common_files}/etc/model_database.conf"
-fnnas_conf="${common_files}/etc/fnnas.conf"
 tmp_outpath="${tmp_path}/tmp_out"
 tmp_fnnas="${tmp_path}/tmp_fnnas"
 tmp_build="${tmp_path}/tmp_build"
@@ -75,6 +74,8 @@ host_release="$(cat /etc/os-release | grep '^VERSION_CODENAME=.*' | cut -d'=' -f
 board_release_file="etc/fnnas-board-release.conf"
 # Add custom fnnas firmware information
 ophub_release_file="etc/ophub-release"
+# Add fnnas configuration file
+fnnas_conf="etc/fnnas.conf"
 
 # Dependency files download repository
 depends_repo="https://github.com/ophub/amlogic-s9xxx-armbian"
@@ -888,8 +889,13 @@ refactor_rootfs() {
     # Make the .bashrc take effect, Default shell settings file: /etc/default/useradd
     echo '[[ "${SHELL}" == *bash && -f "${HOME}/.bashrc" ]] && . ${HOME}/.bashrc' >>etc/profile
 
-    # Explicitly disable resizing for Amlogic device, use fnnas-tf settings
-    echo "yes" >root/.no_rootfs_resize
+    # Set rootfs size limit in fnnas.conf
+    [[ -f "${fnnas_conf}" ]] || error_msg "Missing fnnas configuration file: [ ${fnnas_conf} ]"
+    rootfs_expand="$(echo "${rootfs_expand}" | tr -cd '0-9.' | cut -d. -f1)"
+    [[ -z "${rootfs_expand}" || ! "${rootfs_expand}" =~ ^[0-9]+$ ]] && rootfs_expand="16"
+    [[ "${rootfs_expand}" -ne "16" ]] && {
+        sed -i "s|^rootfs_limit_gib=.*|rootfs_limit_gib=\"${rootfs_expand}\"|g" "${fnnas_conf}"
+    }
 
     # Get random macaddr
     mac_hexchars="0123456789ABCDEF"
@@ -949,9 +955,6 @@ refactor_rootfs() {
     echo "CONTRIBUTORS='${CONTRIBUTORS}'" >>${ophub_release_file}
     echo "BUILDER_NAME='${builder_name}'" >>${ophub_release_file}
     echo "PACKAGED_DATE='$(date +%Y-%m-%d)'" >>${ophub_release_file}
-
-    # Set rootfs size limit in fnnas.conf
-    sed -i "s|^rootfs_limit_gib=.*|rootfs_limit_gib=\"${rootfs_expand}\"|g" "${fnnas_conf}"
 
     sync && sleep 3
 }

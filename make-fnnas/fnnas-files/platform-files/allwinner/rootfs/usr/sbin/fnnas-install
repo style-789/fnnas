@@ -29,11 +29,10 @@
 #
 # Add custom fnnas configuration information
 ophub_release_file="/etc/ophub-release"
+# Add fnnas configuration file
+fnnas_conf="/etc/fnnas.conf"
 # Set the installation file preprocessing directory
 tmp_path="/ddbr"
-
-# Set rootfs size limit (Unit: GiB)
-ROOTFS_LIMIT_GiB="16"
 
 # Set font color
 STEPS="[\033[95m STEPS \033[0m]"
@@ -97,6 +96,21 @@ init_var() {
     echo -e "${INFO} MAINLINE_UBOOT: [ ${MAINLINE_UBOOT} ]"
     echo -e "${INFO} BOOTLOADER_IMG:  [ ${BOOTLOADER_IMG} ]"
 
+    # Check if the ${fnnas_conf} file exists
+    if [[ -f "${fnnas_conf}" ]]; then
+        source "${fnnas_conf}"
+    else
+        # Set root partition size limit (Unit: GiB)
+        echo "rootfs_limit_gib=\"16\"" >"${fnnas_conf}"
+        echo "rootfs_resize=\"yes\"" >>"${fnnas_conf}"
+        rootfs_limit_gib="16"
+        rootfs_resize="yes"
+    fi
+    # Ensure variables are set
+    [[ -n "${rootfs_limit_gib}" ]] || rootfs_limit_gib="16"
+    [[ -n "${rootfs_resize}" ]] || rootfs_resize="yes"
+    MG="${rootfs_limit_gib}GiB"
+
     # Check the current system running disk
     root_devname="$(df / | tail -n1 | awk '{print $1}' | awk -F '/' '{print substr($3, 1, length($3)-2)}')"
     if lsblk -l | grep -E "^${root_devname}boot0" >/dev/null; then
@@ -139,11 +153,11 @@ init_var() {
 show_partition_menu() {
     cat <<EOF
   ┌────────────────────────────────────────────────────────────────────────┐
-  │  Remaining disk space is greater than 16GiB.                           │
+  │  Remaining disk space is greater than ${MG}.                           │
   ├───────────┬────────────────────────────────────────────────────────────┤
   │  Optional │ Description                                                │
   ├───────────┼────────────────────────────────────────────────────────────┤
-  │     1     │ Rootfs partition limit to 16GiB.                           │
+  │     1     │ Rootfs partition limit to ${MG}.                           │
   │     2     │ [default] Rootfs partition expand to full disk (100%).     │
   │     3     │ Retain current Rootfs size (Preserve P3 Data).             │
   │    ≥16    │ Enter a number (GiB) to specify Rootfs partition size.     │
@@ -160,7 +174,7 @@ partition_sizing() {
 
     # Calculate partition size limits(Unit: MiB)
     ROOTFS_START_MiB="$((BLANK1 + BOOT + BLANK2))"
-    MAX_SIZE_MiB="$((ROOTFS_LIMIT_GiB * 1024))"
+    MAX_SIZE_MiB="$((rootfs_limit_gib * 1024))"
     TARGET_END_MiB="$((ROOTFS_START_MiB + MAX_SIZE_MiB))"
     # Calculate target end position in bytes
     TARGET_END_BYTES="$((TARGET_END_MiB * 1024 * 1024))"
@@ -214,14 +228,14 @@ partition_sizing() {
         # Determine partition expansion strategy
         if [[ "${deskid}" == "1" ]]; then
             ROOTFS_END="${TARGET_END_MiB}MiB"
-            echo -e "${INFO} Strategy: Limit Rootfs to ${ROOTFS_LIMIT_GiB}GiB."
+            echo -e "${INFO} Strategy: Limit Rootfs to ${rootfs_limit_gib}GiB."
         elif [[ "${deskid}" == "2" ]]; then
             ROOTFS_END="100%"
             echo -e "${INFO} Strategy: Expand Rootfs to Full Disk."
         elif [[ "${deskid}" == "3" && -n "${P2_END_EXACT}" ]]; then
             ROOTFS_END="${P2_END_EXACT}B"
             echo -e "${INFO} Strategy: Keeping exact previous partition layout to preserve P3."
-        elif [[ "${deskid}" -ge "${ROOTFS_LIMIT_GiB}" && "${deskid}" -le "${FREE_SIZE_GiB}" ]]; then
+        elif [[ "${deskid}" -ge "${rootfs_limit_gib}" && "${deskid}" -le "${FREE_SIZE_GiB}" ]]; then
             CUSTOM_SIZE_MiB="$((deskid * 1024))"
             ROOTFS_END="$((ROOTFS_START_MiB + CUSTOM_SIZE_MiB))MiB"
             echo -e "${INFO} Strategy: Custom Rootfs size to ${deskid}GiB."
@@ -473,14 +487,15 @@ tmpfs                     /tmp    tmpfs   defaults,nosuid                       
 EOF
 
     echo -e "${INFO} Update parameters related to the releases file."
-    ophub_release_file="${DIR_INSTALL}${ophub_release_file}"
-    sed -i "s|^ROOTFS_TYPE=.*|ROOTFS_TYPE='btrfs'|g" ${ophub_release_file}
-    sed -i "s|^BOOT_CONF=.*|BOOT_CONF='${BOOT_CONF}'|g" ${ophub_release_file}
-    sed -i "s|^DISK_TYPE=.*|DISK_TYPE='emmc'|g" ${ophub_release_file}
+    ophub_config_file="${DIR_INSTALL}${ophub_release_file}"
+    sed -i "s|^ROOTFS_TYPE=.*|ROOTFS_TYPE='btrfs'|g" ${ophub_config_file}
+    sed -i "s|^BOOT_CONF=.*|BOOT_CONF='${BOOT_CONF}'|g" ${ophub_config_file}
+    sed -i "s|^DISK_TYPE=.*|DISK_TYPE='emmc'|g" ${ophub_config_file}
 
-    # Remove useless scripts
-    rm -f ${DIR_INSTALL}/usr/sbin/fnnas-tf
-    rm -f ${DIR_INSTALL}/root/.no_rootfs_resize
+    # Update fnnas.conf to disable rootfs resize on first boot
+    echo -e "${INFO} Update parameters related to the fnnas configuration file."
+    fnnas_conf_file="${DIR_INSTALL}${fnnas_conf}"
+    sed -i "s|^rootfs_resize=.*|rootfs_resize=\"no\"|g" "${fnnas_conf_file}"
 
     sync && sleep 3
     umount -f ${DIR_INSTALL}
